@@ -1,0 +1,30 @@
+[gd_scene load_steps=5 format=3 uid="uid://bb3ejitay1ixo"]
+
+[ext_resource type="Script" uid="uid://cf2p2dd47voei" path="res://space_2d.gd" id="1_wtcfe"]
+[ext_resource type="Script" uid="uid://p31hlig8fi6i" path="res://ui/toolbar.gd" id="2_toolbar"]
+[ext_resource type="Script" uid="uid://cahje284mnqul" path="res://camera_controller.gd" id="3_camera"]
+[ext_resource type="Script" uid="uid://cyhmh1rwmtk7p" path="res://ui/simulation_control.gd" id="4_simcontrol"]
+
+[node name="Node2D" type="Node2D"]
+script = ExtResource("1_wtcfe")
+
+[node name="Camera2D" type="Camera2D" parent="."]
+script = ExtResource("3_camera")
+
+[node name="UILayer" type="CanvasLayer" parent="."]
+
+[node name="Toolbar" type="Control" parent="UILayer"]
+layout_mode = 3
+anchors_preset = 9
+anchor_bottom = 1.0
+offset_right = 120.0
+grow_vertical = 2
+script = ExtResource("2_toolbar")
+
+[node name="SimulationControl" type="Control" parent="UILayer"]
+layout_mode = 3
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+grow_horizontal = 2
+script = ExtResource("4_simcontrol")
