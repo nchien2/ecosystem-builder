@@ -3,6 +3,7 @@ class_name PreyAnimal
 
 var flee_cooldown_timer: Timer
 var is_fleeing_on_cooldown: bool = false
+var time_since_last_hop: float = 0.0  # Track time since last hop calculation
 
 func _ready() -> void:
 	# Set prey properties (smaller and faster)
@@ -27,13 +28,49 @@ func _ready() -> void:
 
 func _process(_delta: float) -> void:
 	# Don't process behaviors if simulation isn't running
-	if not simulation_running:
-		return
-	
-	if current_state == State.INTERACTING:
+	pass
+
+func _process_simulation() -> void:
+	# Behavior calculations at fixed timestep
+	if not simulation_running or current_state == State.INTERACTING:
 		return
 	
 	_scan_for_predators()
+	_movement()
+
+
+func _movement() -> void:
+	# Calculate desired position based on behavior state
+	# This runs at fixed timestep in _physics_process
+	if current_state == State.INTERACTING:
+		return
+	
+	time_since_last_hop += GlobalConstants.SIMULATION_TIMESTEP
+	
+	# Determine hop interval based on current state
+	var hop_interval: float
+	match current_state:
+		State.IDLE:
+			hop_interval = randf_range(idle_hop_interval_min, idle_hop_interval_max) / speed_multiplier
+		State.CHASING, State.FLEEING:
+			hop_interval = fast_hop_interval / speed_multiplier
+		_:
+			hop_interval = idle_hop_interval_max / speed_multiplier
+	
+	# Calculate new desired position if enough time has passed
+	if time_since_last_hop >= hop_interval:
+		time_since_last_hop = 0.0
+		
+		var target_position: Vector2
+		match current_state:
+			State.IDLE:
+				target_position = _get_random_hop_target()
+			State.FLEEING:
+				target_position = _get_flee_hop_target()
+			_:
+				target_position = _get_random_hop_target()
+		
+		desired_position = target_position
 
 func _scan_for_predators() -> void:
 	# Look for nearby predator animals using efficient Area2D detection

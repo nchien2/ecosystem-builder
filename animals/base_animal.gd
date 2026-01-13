@@ -1,3 +1,4 @@
+@abstract
 extends Node2D
 class_name BaseAnimal
 
@@ -26,16 +27,52 @@ var simulation_running: bool = false  # Track if simulation is active
 var speed_multiplier: float = 1.0  # Speed multiplier for timers (2.0 = 2x speed)
 var is_selected: bool = false  # Whether this animal is currently selected
 var info_panel: AnimalInfoPanel  # UI panel shown when selected
+var sim_accumulator: float = 0.0  # Accumulator for simulation time
+
+# Desired position calculated in _physics_process -> _movement()
+var desired_position: Vector2
 
 func _ready() -> void:
 	z_index = 2
 	add_to_group("animals")  # Join group for simulation signals
 	_create_sprite()
-	_create_detection_area()
-	_create_body_area()
+	detection_area = Utilities._create_circular_collision_area(
+		detection_range, 
+		"DetectionArea", 
+		GlobalConstants.COLLISION_LAYER_ANIMAL_DETECTION, 
+		GlobalConstants.COLLISION_LAYER_ANIMAL_DETECTION
+	)
+	add_child(detection_area)
+	body_area = Utilities._create_circular_collision_area(
+		sprite_size / 2.0,
+		"BodyArea",
+		GlobalConstants.COLLISION_LAYER_ANIMAL_BODY, 
+		0
+	)
+	add_child(body_area)
 	_create_info_panel()
 	start_position = position
 	_setup_hopping()
+
+func _physics_process(delta: float) -> void:
+	# Run simulation logic at fixed timestep
+	if simulation_running:
+		sim_accumulator += delta
+		if sim_accumulator >= GlobalConstants.SIMULATION_TIMESTEP:
+			sim_accumulator -= GlobalConstants.SIMULATION_TIMESTEP
+			_process_simulation()
+				
+
+func _process(_delta: float) -> void:
+	# Visual updates happen every frame via tween animation
+	# The timer in _on_hop_timer_timeout() handles starting new hops
+	pass
+
+@abstract
+func _process_simulation() -> void
+
+@abstract
+func _movement() -> void
 
 func _create_sprite() -> void:
 	# Create a simple visual representation
@@ -64,35 +101,6 @@ func _create_sprite() -> void:
 	
 	add_child(sprite)
 
-func _create_detection_area() -> void:
-	# Create Area2D for efficient spatial detection (uses Godot's built-in broadphase)
-	detection_area = Area2D.new()
-	detection_area.name = "DetectionArea"
-	detection_area.collision_layer = GlobalConstants.COLLISION_LAYER_ANIMAL_DETECTION
-	detection_area.collision_mask = GlobalConstants.COLLISION_LAYER_ANIMAL_DETECTION
-	
-	var collision_shape = CollisionShape2D.new()
-	var circle_shape = CircleShape2D.new()
-	circle_shape.radius = detection_range
-	collision_shape.shape = circle_shape
-	
-	detection_area.add_child(collision_shape)
-	add_child(detection_area)
-
-func _create_body_area() -> void:
-	# Small Area2D for click detection (layer 2)
-	body_area = Area2D.new()
-	body_area.name = "BodyArea"
-	body_area.collision_layer = GlobalConstants.COLLISION_LAYER_ANIMAL_BODY
-	body_area.collision_mask = 0
-	
-	var collision_shape = CollisionShape2D.new()
-	var circle_shape = CircleShape2D.new()
-	circle_shape.radius = sprite_size / 2.0
-	collision_shape.shape = circle_shape
-	
-	body_area.add_child(collision_shape)
-	add_child(body_area)
 
 func _create_info_panel() -> void:
 	# Create info panel using the reusable UI component
@@ -116,66 +124,75 @@ func set_selected(selected: bool) -> void:
 	queue_redraw()
 
 func _setup_hopping() -> void:
-	# Create a timer for random intervals
-	hop_timer = Timer.new()
-	hop_timer.wait_time = randf_range(idle_hop_interval_min, idle_hop_interval_max)
-	hop_timer.one_shot = true
-	hop_timer.timeout.connect(_perform_hop)
-	add_child(hop_timer)
-	# Don't start timer automatically - wait for simulation to begin
+	# Initialize desired position
+	desired_position = position
 	
-	# Create tween for animations
+	# Create timer for hop animation loop
+	hop_timer = Timer.new()
+	hop_timer.wait_time = 0.016  # ~60fps update rate for smooth animation
+	hop_timer.timeout.connect(_on_hop_timer_timeout)
+	add_child(hop_timer)
+	hop_timer.start()
+	
+	# Create tween for hop arc animation
 	tween = create_tween()
 	tween.set_loops()
 
+# TODO: Is this the right place to do this?
 func set_simulation_running(running: bool) -> void:
 	simulation_running = running
 	
-	if running:
-		# Start behaviors when simulation begins
-		if current_state != State.INTERACTING:
-			hop_timer.start()
-	else:
+	if not running:
 		# Stop behaviors when simulation stops
-		hop_timer.stop()
 		if tween:
 			tween.kill()
 		# Reset to idle state
 		if current_state != State.INTERACTING:
 			current_state = State.IDLE
 			target_animal = null
+			desired_position = position
 
 func set_speed_multiplier(multiplier: float) -> void:
 	speed_multiplier = multiplier
 
-func _perform_hop() -> void:
-	if current_state == State.INTERACTING or not simulation_running:
-		return
+func _animate_movement() -> void:
+	# Check if we need to animate toward desired position
+	var distance_to_target = position.distance_to(desired_position)
+	if distance_to_target > 0.1:  # Small threshold to avoid jitter
+		# If not already animating, start a new hop animation
+		if not tween or not tween.is_valid():
+			_start_hop_animation()
+
+func _start_hop_animation() -> void:
+	# Calculate direction toward desired position
+	var direction_to_target = (desired_position - position).normalized()
 	
-	var target_position: Vector2
+	# Move one hop_distance toward the target (or less if we're close)
+	var distance_to_target = position.distance_to(desired_position)
+	var hop_length = min(hop_distance, distance_to_target)
+	var target_pos = position + direction_to_target * hop_length
 	
-	var hop_interval = 0
-	match current_state:
-		State.IDLE:
-			target_position = _get_random_hop_target()
-			hop_interval = randf_range(idle_hop_interval_min, idle_hop_interval_max)
-		State.CHASING:
-			target_position = _get_chase_hop_target()
-			hop_interval = fast_hop_interval
-		State.FLEEING:
-			target_position = _get_flee_hop_target()
-			hop_interval = fast_hop_interval
-		State.INTERACTING:
-			return
+	# Clamp to map boundaries
+	target_pos = _clamp_to_map_bounds(target_pos)
 	
-	# Clamp target position to map boundaries
-	target_position = _clamp_to_map_bounds(target_position)
+	# Create hop arc - move up then down while moving horizontally
+	var hop_direction = target_pos - position
+	var mid_position = position + hop_direction * 0.5 + Vector2(0, -hop_distance * 0.3)
 	
-	_animate_hop_to(target_position)
+	# Kill existing tween if any
+	if tween:
+		tween.kill()
 	
-	# Schedule next hop (faster with speed multiplier)
-	hop_timer.wait_time = hop_interval / speed_multiplier
-	hop_timer.start()
+	# Create new tween for hop arc animation
+	tween = create_tween()
+	var actual_duration = hop_duration / speed_multiplier
+	tween.tween_method(_set_position_arc.bind(position, mid_position, target_pos), 0.0, 1.0, actual_duration)
+
+func _on_hop_timer_timeout() -> void:
+	# Timer loops continuously to animate hops until desired position is reached
+	# This ensures smooth animation that adapts to changing desired positions
+	if simulation_running and current_state != State.INTERACTING:
+		_animate_movement()
 
 func _clamp_to_map_bounds(pos: Vector2) -> Vector2:
 	return Vector2(
@@ -202,21 +219,6 @@ func _get_flee_hop_target() -> Vector2:
 		var direction = (global_position - target_animal.global_position).normalized()
 		return position + direction * hop_distance
 	return _get_random_hop_target()
-
-func _animate_hop_to(target_position: Vector2) -> void:
-	# Create hop arc - move up then down while moving horizontally
-	var hop_direction = target_position - position
-	var mid_position = position + hop_direction * 0.5 + Vector2(0, -hop_distance * 0.3)
-	
-	# Animate the hop
-	if tween:
-		tween.kill()
-	tween = create_tween()
-	tween.set_parallel(true)  # Allow multiple properties to animate simultaneously
-	
-	# Move position in an arc
-	var actual_duration = hop_duration / speed_multiplier
-	tween.tween_method(_set_position_arc.bind(position, mid_position, target_position), 0.0, 1.0, actual_duration)
 
 func _set_position_arc(progress: float, start_pos: Vector2, mid_pos: Vector2, end_pos: Vector2) -> void:
 	# Quadratic bezier curve for smooth arc motion
@@ -245,4 +247,4 @@ func set_interacting_state() -> void:
 	current_state = State.INTERACTING
 	if tween:
 		tween.kill()
-	hop_timer.stop()
+	desired_position = position  # Stop movement

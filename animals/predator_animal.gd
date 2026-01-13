@@ -5,8 +5,10 @@ class_name PredatorAnimal
 
 @export var catch_distance: float = 30.0  # Distance at which predator catches prey
 @export var catch_duration: float = 1.5  # How long the catch animation lasts before prey is destroyed
+@export var speed: float = 5.0  # Distance traveled per simulation tick
 
 var catch_timer: Timer
+var time_since_last_hop: float = 0.0  # Track time since last hop calculation
 
 func _ready() -> void:
 	# Set predator properties
@@ -28,16 +30,49 @@ func _ready() -> void:
 	catch_timer.timeout.connect(_on_catch_complete)
 	add_child(catch_timer)
 
-func _process(_delta: float) -> void:
-	# Don't process behaviors if simulation isn't running
-	if not simulation_running:
-		return
-	
-	if current_state == State.INTERACTING:
+func _process_simulation() -> void:
+	# Behavior calculations at fixed timestep
+	if not simulation_running or current_state == State.INTERACTING:
 		return
 	
 	_scan_for_prey()
 	_attempt_prey_catch()
+	_movement()
+
+func _movement() -> void:
+	# Calculate desired position based on behavior state
+	# This runs at fixed timestep in _physics_process
+	if current_state == State.INTERACTING:
+		return
+	
+	time_since_last_hop += GlobalConstants.SIMULATION_TIMESTEP
+	
+	# Determine hop interval based on current state
+	var hop_interval: float
+	match current_state:
+		State.IDLE:
+			hop_interval = randf_range(idle_hop_interval_min, idle_hop_interval_max) / speed_multiplier
+		State.CHASING, State.FLEEING:
+			hop_interval = fast_hop_interval / speed_multiplier
+		_:
+			hop_interval = idle_hop_interval_max / speed_multiplier
+	
+	# Calculate new desired position if enough time has passed
+	if time_since_last_hop >= hop_interval:
+		time_since_last_hop = 0.0
+		
+		var target_position: Vector2
+		match current_state:
+			State.IDLE:
+				target_position = _get_random_hop_target()
+			State.CHASING:
+				target_position = _get_chase_hop_target()
+			State.FLEEING:
+				target_position = _get_flee_hop_target()
+			_:
+				target_position = _get_random_hop_target()
+		
+		desired_position = target_position
 
 func _scan_for_prey() -> void:
 	# Look for nearby prey animals using efficient Area2D detection
@@ -90,9 +125,10 @@ func _on_catch_complete() -> void:
 	# Restore normal color
 	_restore_sprite_color()
 	
-	# Restart hopping
-	hop_timer.start()
+	# Reset hop timing to allow new hops immediately
+	time_since_last_hop = 0.0
 
+# Not currently working or used
 func _flash_sprite(flash_color: Color) -> void:
 	var sprite = get_node_or_null("Sprite")
 	if sprite and sprite is Sprite2D:

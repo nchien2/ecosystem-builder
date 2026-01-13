@@ -18,3 +18,4 @@ config/icon="res://icon.svg"
 [autoload]
 
 GlobalConstants="*res://global_constants.gd"
+Utilities="*res://utilities.gd"
