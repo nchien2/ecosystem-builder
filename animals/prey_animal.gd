@@ -17,6 +17,16 @@ func _ready() -> void:
 	hop_duration = 0.2  # Faster hop animation
 	detection_range = 180.0  # Prey are more alert, can detect predators from further
 	
+	# Prey energy settings (smaller, more efficient)
+	max_energy = 80.0
+	energy = 80.0
+	energy_drain_rates = {
+		State.IDLE: 0.3,          # Small body = efficient at rest
+		State.CHASING: 2.5,
+		State.FLEEING: 2.5,       # Fleeing is exhausting
+		State.INTERACTING: 0.15,
+	}
+	
 	super._ready()
 	
 	# Setup cooldown timer for fleeing state
@@ -32,11 +42,23 @@ func _process(_delta: float) -> void:
 
 func _process_simulation() -> void:
 	# Behavior calculations at fixed timestep
-	if not simulation_running or current_state == State.INTERACTING:
+	if not SimManager.is_running or current_state == State.INTERACTING:
 		return
 	
+	_deplete_energy()
+	_forage_for_food()
 	_scan_for_predators()
 	_movement()
+
+func _forage_for_food() -> void:
+	## Prey forage for food when idle and inside a biome.
+	## This consumes vegetation energy from the biome (over-grazing mechanic).
+	if current_state != State.IDLE or current_biome == null:
+		return
+	
+	var energy_received = current_biome.forage()
+	if energy_received > 0:
+		gain_energy(energy_received)
 
 
 func _movement() -> void:
@@ -51,11 +73,11 @@ func _movement() -> void:
 	var hop_interval: float
 	match current_state:
 		State.IDLE:
-			hop_interval = randf_range(idle_hop_interval_min, idle_hop_interval_max) / speed_multiplier
+			hop_interval = randf_range(idle_hop_interval_min, idle_hop_interval_max) / SimManager.speed_multiplier
 		State.CHASING, State.FLEEING:
-			hop_interval = fast_hop_interval / speed_multiplier
+			hop_interval = fast_hop_interval / SimManager.speed_multiplier
 		_:
-			hop_interval = idle_hop_interval_max / speed_multiplier
+			hop_interval = idle_hop_interval_max / SimManager.speed_multiplier
 	
 	# Calculate new desired position if enough time has passed
 	if time_since_last_hop >= hop_interval:
@@ -91,7 +113,7 @@ func _scan_for_predators() -> void:
 		if current_state == State.FLEEING and not is_fleeing_on_cooldown:
 			# Start cooldown before returning to idle
 			is_fleeing_on_cooldown = true
-			flee_cooldown_timer.wait_time = 2.0 / speed_multiplier
+			flee_cooldown_timer.wait_time = 2.0 / SimManager.speed_multiplier
 			flee_cooldown_timer.start()
 
 func _on_flee_cooldown_timeout() -> void:

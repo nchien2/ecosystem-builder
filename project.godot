@@ -19,3 +19,4 @@ config/icon="res://icon.svg"
 
 GlobalConstants="*res://global_constants.gd"
 Utilities="*res://utilities.gd"
+SimManager="*res://simulation_manager.gd"

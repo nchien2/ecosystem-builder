@@ -4,10 +4,12 @@ func _create_circular_collision_area(radius: float, area_name: String, layer: in
 	# Create circular 2D collision area with given radius, layer, mask, and name
 	var area = Area2D.new()
 	area.name = area_name
-	area.set_collision_layer_value(layer, true)
-	area.set_collision_mask_value(mask, true)
-	area.collision_layer = layer
-	area.collision_mask = GlobalConstants.COLLISION_LAYER_ANIMAL_DETECTION
+	if layer > 0:
+		area.set_collision_layer_value(layer, true)
+		area.collision_layer = layer
+	if mask > 0:
+		area.set_collision_mask_value(mask, true)
+		area.collision_mask = mask
 
 	var collision_shape = CollisionShape2D.new()
 	var circle_shape = CircleShape2D.new()

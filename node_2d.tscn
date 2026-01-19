@@ -1,12 +1,16 @@
-[gd_scene load_steps=5 format=3 uid="uid://bb3ejitay1ixo"]
+[gd_scene load_steps=6 format=3 uid="uid://bb3ejitay1ixo"]
 
 [ext_resource type="Script" uid="uid://cf2p2dd47voei" path="res://space_2d.gd" id="1_wtcfe"]
 [ext_resource type="Script" uid="uid://p31hlig8fi6i" path="res://ui/toolbar.gd" id="2_toolbar"]
 [ext_resource type="Script" uid="uid://cahje284mnqul" path="res://camera_controller.gd" id="3_camera"]
 [ext_resource type="Script" uid="uid://cyhmh1rwmtk7p" path="res://ui/simulation_control.gd" id="4_simcontrol"]
+[ext_resource type="Script" uid="uid://qjj7nsf8xifm" path="res://simulation_manager.gd" id="5_simmanager"]
 
-[node name="Node2D" type="Node2D"]
+[node name="EcosystemArea" type="Node2D"]
 script = ExtResource("1_wtcfe")
+
+[node name="SimulationManager" type="Node" parent="."]
+script = ExtResource("5_simmanager")
 
 [node name="Camera2D" type="Camera2D" parent="."]
 script = ExtResource("3_camera")

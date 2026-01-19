@@ -6,6 +6,7 @@ class_name PredatorAnimal
 @export var catch_distance: float = 30.0  # Distance at which predator catches prey
 @export var catch_duration: float = 1.5  # How long the catch animation lasts before prey is destroyed
 @export var speed: float = 5.0  # Distance traveled per simulation tick
+@export var energy_gain_from_prey: float = 50.0  # Energy gained from eating prey
 
 var catch_timer: Timer
 var time_since_last_hop: float = 0.0  # Track time since last hop calculation
@@ -22,6 +23,16 @@ func _ready() -> void:
 	hop_duration = 0.3
 	detection_range = 200.0  # Predators can see further
 	
+	# Predator energy settings (larger animals need more energy)
+	max_energy = 120.0
+	energy = 120.0
+	energy_drain_rates = {
+		State.IDLE: 0.8,          # Larger body = more energy needed at rest
+		State.CHASING: 3.5,       # Chasing is exhausting
+		State.FLEEING: 3.5,
+		State.INTERACTING: 0.4,
+	}
+	
 	super._ready()
 	
 	# Setup catch timer
@@ -30,11 +41,15 @@ func _ready() -> void:
 	catch_timer.timeout.connect(_on_catch_complete)
 	add_child(catch_timer)
 
+func _physics_process(_delta: float) -> void:
+	pass
+
 func _process_simulation() -> void:
 	# Behavior calculations at fixed timestep
-	if not simulation_running or current_state == State.INTERACTING:
+	if not SimManager.is_running or current_state == State.INTERACTING:
 		return
 	
+	_deplete_energy()
 	_scan_for_prey()
 	_attempt_prey_catch()
 	_movement()
@@ -51,11 +66,11 @@ func _movement() -> void:
 	var hop_interval: float
 	match current_state:
 		State.IDLE:
-			hop_interval = randf_range(idle_hop_interval_min, idle_hop_interval_max) / speed_multiplier
+			hop_interval = randf_range(idle_hop_interval_min, idle_hop_interval_max) / SimManager.speed_multiplier
 		State.CHASING, State.FLEEING:
-			hop_interval = fast_hop_interval / speed_multiplier
+			hop_interval = fast_hop_interval / SimManager.speed_multiplier
 		_:
-			hop_interval = idle_hop_interval_max / speed_multiplier
+			hop_interval = idle_hop_interval_max / SimManager.speed_multiplier
 	
 	# Calculate new desired position if enough time has passed
 	if time_since_last_hop >= hop_interval:
@@ -109,13 +124,14 @@ func _attempt_prey_catch() -> void:
 		_flash_sprite(Color.RED)
 		
 		# Start timer to destroy prey
-		catch_timer.wait_time = catch_duration / speed_multiplier
+		catch_timer.wait_time = catch_duration / SimManager.speed_multiplier
 		catch_timer.start()
 	
 
 func _on_catch_complete() -> void:
-	# Destroy the prey
+	# Destroy the prey and gain energy
 	if target_animal and is_instance_valid(target_animal):
+		gain_energy(energy_gain_from_prey)
 		target_animal.queue_free()
 	
 	# Reset predator state

@@ -7,9 +7,6 @@ var placeholder_instance: PackedScene
 @onready var simulation_control: Control = $UILayer/SimulationControl  # Reference to simulation control
 
 var selected_node_type: String = ""  # Currently selected node type from toolbar
-var is_simulation_running: bool = false  # Track simulation state
-var has_simulation_started: bool = false  # True after first simulation start
-var current_speed_multiplier: float = 1.0  # Track current speed multiplier
 var selected_animal: BaseAnimal = null  # Currently selected animal for camera follow
 
 # Camera panning variables (for left-click drag)
@@ -67,7 +64,7 @@ func _input(event: InputEvent) -> void:
 				var world_mouse_pos = get_global_mouse_position()
 				var local_mouse_pos = to_local(world_mouse_pos)
 				
-				if has_simulation_started:
+				if SimManager.has_simulation_started:
 					# After simulation started, try to select animal at click position
 					var clicked_animal = _get_animal_at_position(local_mouse_pos)
 					if clicked_animal:
@@ -124,23 +121,18 @@ func _on_node_type_selected(node_type: String) -> void:
 	print("Selected node type: ", node_type)
 
 func _on_simulation_toggled(running: bool) -> void:
-	is_simulation_running = running
-	
-	# Once simulation starts, placement is permanently disabled
+	# Delegate to SimulationManager
 	if running:
-		has_simulation_started = true
+		SimManager.start_simulation()
+	else:
+		SimManager.stop_simulation()
 	
 	print("Simulation ", "started" if running else "stopped")
-	
-	# Notify all animals via group call
-	get_tree().call_group("animals", "set_simulation_running", running)
 
 func _on_speed_changed(multiplier: float) -> void:
-	current_speed_multiplier = multiplier
+	# Delegate to SimulationManager
+	SimManager.speed_multiplier = multiplier
 	print("Speed changed to ", multiplier, "x")
-	
-	# Notify all animals via group call
-	get_tree().call_group("animals", "set_speed_multiplier", multiplier)
 
 func _select_animal(animal: BaseAnimal) -> void:
 	# Deselect previous
@@ -176,7 +168,7 @@ func _get_animal_at_position(pos: Vector2) -> BaseAnimal:
 
 func _place_node_at(coords: Vector2) -> void:
 	# Placement disabled after simulation has started
-	if has_simulation_started:
+	if SimManager.has_simulation_started:
 		return
 	
 	# Check if we have inventory for the selected node type
@@ -200,9 +192,9 @@ func _place_node_at(coords: Vector2) -> void:
 	
 	# Set initial simulation state and speed for animals
 	if node.has_method("set_simulation_running"):
-		node.set_simulation_running(is_simulation_running)
+		node.set_simulation_running(SimManager.is_running)
 	if node.has_method("set_speed_multiplier"):
-		node.set_speed_multiplier(current_speed_multiplier)
+		node.set_speed_multiplier(SimManager.speed_multiplier)
 	
 	# Decrement inventory after successful placement
 	toolbar.decrement_inventory(selected_node_type)

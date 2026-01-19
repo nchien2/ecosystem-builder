@@ -16,20 +16,31 @@ enum State { IDLE, CHASING, FLEEING, INTERACTING }
 @export var detection_range: float = 150.0  # Range to detect other animals
 @export var node_type: String = "Animal"  # Type name for display
 
+# Energy system
+@export var max_energy: float = 100.0
+@export var energy: float = 100.0
+## Energy drain rate per second for each state
+var energy_drain_rates: Dictionary = {
+	State.IDLE: 0.5,
+	State.CHASING: 2.0,
+	State.FLEEING: 2.0,
+	State.INTERACTING: 0.25,
+}
+
+signal died  # Emitted when animal runs out of energy
+
 var start_position: Vector2
 var hop_timer: Timer
 var tween: Tween
 var current_state: State = State.IDLE
 var target_animal: BaseAnimal = null  # Target to chase or flee from
 var detection_area: Area2D  # For efficient spatial queries
-var body_area: Area2D  # Small area for click detection (sprite-sized)
-var simulation_running: bool = false  # Track if simulation is active
-var speed_multiplier: float = 1.0  # Speed multiplier for timers (2.0 = 2x speed)
+var body_area: Area2D  # Small area for click detection and biome detection (sprite-sized)
 var is_selected: bool = false  # Whether this animal is currently selected
 var info_panel: AnimalInfoPanel  # UI panel shown when selected
-var sim_accumulator: float = 0.0  # Accumulator for simulation time
+var current_biome: BaseBiome = null  # The biome this animal is currently in
 
-# Desired position calculated in _physics_process -> _movement()
+# Desired position calculated in _process_simulation -> _movement()
 var desired_position: Vector2
 
 func _ready() -> void:
@@ -53,14 +64,12 @@ func _ready() -> void:
 	_create_info_panel()
 	start_position = position
 	_setup_hopping()
+	SimManager.simulation_started.connect(_on_simulation_start)
+	SimManager.simulation_stopped.connect(_on_simulation_stop)
+	SimManager.timestep_processed.connect(_process_simulation)
 
-func _physics_process(delta: float) -> void:
-	# Run simulation logic at fixed timestep
-	if simulation_running:
-		sim_accumulator += delta
-		if sim_accumulator >= GlobalConstants.SIMULATION_TIMESTEP:
-			sim_accumulator -= GlobalConstants.SIMULATION_TIMESTEP
-			_process_simulation()
+# Note: _physics_process removed - simulation logic is now driven by space_2d
+# at fixed timesteps via _process_simulation() calls
 				
 
 func _process(_delta: float) -> void:
@@ -108,7 +117,7 @@ func _create_info_panel() -> void:
 	info_panel.name = "InfoPanel"
 	info_panel.set_position_from_sprite(sprite_size)
 	add_child(info_panel)  # Must add to tree first so _ready() runs
-	info_panel.update_info(node_type, fast_hop_interval)
+	_update_info_panel()
 
 func _draw() -> void:
 	# Draw selection highlight ring when selected
@@ -120,8 +129,12 @@ func set_selected(selected: bool) -> void:
 	is_selected = selected
 	info_panel.visible = selected
 	if selected:
-		info_panel.update_info(node_type, fast_hop_interval)
+		_update_info_panel()
 	queue_redraw()
+
+func _update_info_panel() -> void:
+	var energy_text = "Energy: %d/%d" % [int(energy), int(max_energy)]
+	info_panel.update_info(node_type, fast_hop_interval, energy_text)
 
 func _setup_hopping() -> void:
 	# Initialize desired position
@@ -138,22 +151,13 @@ func _setup_hopping() -> void:
 	tween = create_tween()
 	tween.set_loops()
 
-# TODO: Is this the right place to do this?
-func set_simulation_running(running: bool) -> void:
-	simulation_running = running
-	
-	if not running:
-		# Stop behaviors when simulation stops
-		if tween:
-			tween.kill()
-		# Reset to idle state
-		if current_state != State.INTERACTING:
-			current_state = State.IDLE
-			target_animal = null
-			desired_position = position
+func _on_simulation_start():
+	if tween.is_valid():
+		tween.play()
 
-func set_speed_multiplier(multiplier: float) -> void:
-	speed_multiplier = multiplier
+func _on_simulation_stop():
+	if tween.is_valid():
+		tween.pause()
 
 func _animate_movement() -> void:
 	# Check if we need to animate toward desired position
@@ -185,13 +189,13 @@ func _start_hop_animation() -> void:
 	
 	# Create new tween for hop arc animation
 	tween = create_tween()
-	var actual_duration = hop_duration / speed_multiplier
+	var actual_duration = hop_duration / SimManager.speed_multiplier
 	tween.tween_method(_set_position_arc.bind(position, mid_position, target_pos), 0.0, 1.0, actual_duration)
 
 func _on_hop_timer_timeout() -> void:
 	# Timer loops continuously to animate hops until desired position is reached
 	# This ensures smooth animation that adapts to changing desired positions
-	if simulation_running and current_state != State.INTERACTING:
+	if SimManager.is_running and current_state != State.INTERACTING:
 		_animate_movement()
 
 func _clamp_to_map_bounds(pos: Vector2) -> Vector2:
@@ -248,3 +252,27 @@ func set_interacting_state() -> void:
 	if tween:
 		tween.kill()
 	desired_position = position  # Stop movement
+
+# Energy system methods
+func _deplete_energy() -> void:
+	var drain_rate: float = energy_drain_rates.get(current_state, energy_drain_rates[State.IDLE])
+	
+	energy -= drain_rate * GlobalConstants.SIMULATION_TIMESTEP
+	energy = clampf(energy, 0.0, max_energy)
+	
+	# Update info panel if visible
+	if is_selected:
+		_update_info_panel()
+	
+	# Check for death
+	if energy <= 0:
+		_die()
+
+func _die() -> void:
+	died.emit()
+	queue_free()
+
+func gain_energy(amount: float) -> void:
+	energy = clampf(energy + amount, 0.0, max_energy)
+	if is_selected:
+		_update_info_panel()
